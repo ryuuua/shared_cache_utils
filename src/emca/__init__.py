@@ -36,6 +36,34 @@ def build_embedding_cache_filename(cfg) -> str:
     return f"{filename}.npz"
 
 
+def _resolve_embedding_cache_layout(
+    *, env_var: str = "CEBRA_EMBEDDING_CACHE_LAYOUT"
+) -> str:
+    layout = os.getenv(env_var, "flat").strip().lower()
+    if layout not in {"flat", "hierarchical"}:
+        return "flat"
+    return layout
+
+
+def _resolve_embedding_family(cfg) -> str:
+    embedding_type = getattr(cfg.embedding, "type", None)
+    if embedding_type in {"hf_transformer", "sentence_transformer"}:
+        return "lm"
+    if embedding_type:
+        return str(embedding_type)
+    return "unknown"
+
+
+def _resolve_embedding_model_dir(cfg) -> str:
+    return getattr(cfg.embedding, "model_name", None) or cfg.embedding.name
+
+
 def get_embedding_cache_path(cfg) -> Path:
     """Generate a unique path for a cached text embedding file."""
-    return resolve_embedding_cache_dir(cfg) / build_embedding_cache_filename(cfg)
+    base_dir = resolve_embedding_cache_dir(cfg)
+    filename = build_embedding_cache_filename(cfg)
+    if _resolve_embedding_cache_layout() == "hierarchical":
+        embedding_family = _resolve_embedding_family(cfg)
+        model_dir = _resolve_embedding_model_dir(cfg)
+        return base_dir / embedding_family / model_dir / filename
+    return base_dir / filename
