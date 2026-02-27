@@ -1,0 +1,75 @@
+version: 1
+
+blocked_tools:
+  - web.image_query
+
+rules:
+  - id: stop_run
+    kind: regex
+    action: stop_run
+    reason: STOPRUN command detected.
+    pattern: "\\bSTOPRUN\\s+(?P<run_id>[A-Za-z0-9_.:-]+)\\b"
+    flags:
+      - IGNORECASE
+
+  - id: stop_job
+    kind: regex
+    action: stop_job
+    reason: STOP command detected.
+    pattern: "\\bSTOP\\s+(?P<job_id>[A-Za-z0-9_.:-]+)\\b"
+    flags:
+      - IGNORECASE
+
+  - id: mcp_sandbox_trigger
+    kind: token_any
+    action: mcp_sandbox_factory
+    reason: MCP_SANDBOX trigger detected.
+    case_sensitive: true
+    tokens:
+      - MCP_SANDBOX_SYNC
+      - MCP_SANDBOX_STOP_SMOKE
+      - MCP_SANDBOX_DEV
+      - MCP_SANDBOX_EXP
+      - MCP_SANDBOX_ANALYZE
+      - MCP_SANDBOX_LOOP
+
+  - id: external_ram
+    kind: token_any
+    action: workflow_external_ram
+    reason: External RAM trigger detected.
+    case_sensitive: false
+    tokens:
+      - "@RAM"
+      - "@todoist"
+
+  - id: ollama_report
+    kind: token_any
+    action: ollama_generate_report
+    reason: Ollama @REPORT trigger detected.
+    case_sensitive: false
+    tokens:
+      - "@REPORT"
+
+  - id: ollama_summary
+    kind: token_any
+    action: ollama_summarize_directory
+    reason: Ollama @SUMMARY trigger detected.
+    case_sensitive: false
+    tokens:
+      - "@SUMMARY"
+
+  - id: ollama_index
+    kind: token_any
+    action: ollama_rebuild_index
+    reason: Ollama @INDEX trigger detected.
+    case_sensitive: false
+    tokens:
+      - "@INDEX"
+
+  - id: ollama_search
+    kind: token_any
+    action: ollama_semantic_search
+    reason: Ollama @SEARCH trigger detected.
+    case_sensitive: false
+    tokens:
+      - "@SEARCH"
