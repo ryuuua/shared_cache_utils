@@ -144,6 +144,9 @@ VaultのローカルRAG用ベクトルキャッシュの再構築を行うトリ
 - `mx:dev`
 - `mx:loop`
 - `mx:local`
+- `headnode`
+- `cc21`
+- `local`
 
 実行例:
 - `python3 /Users/ryua/code/mcp_sandbox/scripts/dispatch_repo_trigger.py --repo-root /Users/ryua/code/shared_cache_utils --token <TOKEN>`
