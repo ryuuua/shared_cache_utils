@@ -134,3 +134,17 @@ VaultのローカルRAG用ベクトルキャッシュの再構築を行うトリ
 
 - `web.image_query` はこのリポジトリでは使用禁止。
 - 画像が必要な場合は `web.search_query` を使って画像掲載ページURLを提示する。
+
+<!-- AGENTIC_TRIGGER_TOKENS:BEGIN -->
+## Agentic Trigger Tokens
+
+このrepoでは `.mcp/trigger_profiles.yaml` のトリガー定義を使います。
+以下のトークンをユーザー入力に含めると、`dispatch_repo_trigger.py` で実行できます。
+
+- `mx:dev`
+- `mx:loop`
+- `mx:local`
+
+実行例:
+- `python3 /Users/ryua/code/mcp_sandbox/scripts/dispatch_repo_trigger.py --repo-root /Users/ryua/code/shared_cache_utils --token <TOKEN>`
+<!-- AGENTIC_TRIGGER_TOKENS:END -->

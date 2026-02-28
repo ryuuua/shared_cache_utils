@@ -1,0 +1,47 @@
+version: 1
+profiles:
+- token: mx:dev
+  route: sandbox
+  sandbox: sandbox1
+  factory_token: MCP_SANDBOX_DEV
+  execution_engine: codex
+  agent_modes:
+  - IMPLEMENT
+  - TEST
+  - REVIEW
+  - INTEGRATE
+  goal: Agentic DEV autopilot on sandbox1 profile
+  timeout_sec: 5400
+  loop_max_iters: 3
+  loop_run_dev_mode: decision
+- token: mx:loop
+  route: sandbox
+  sandbox: sandbox2
+  factory_token: MCP_SANDBOX_LOOP
+  execution_engine: codex
+  agent_modes:
+  - EXPERIMENT_BASELINE
+  - EXPERIMENT_VARIANT
+  - ANALYZE_SUMMARY
+  goal: Agentic EXP/ANALYZE loop on sandbox2 profile
+  timeout_sec: 5400
+  loop_max_iters: 3
+  loop_run_dev_mode: decision
+- token: mx:local
+  route: outside
+  execution_engine: codex
+  agent_modes:
+  - PLAN
+  - IMPLEMENT
+  - TEST
+  - REVIEW
+  - INTEGRATE
+  goal: Run an end-to-end local agentic development cycle with codex exec
+  codex_prompt: 'Run a full agentic development cycle for this repository: plan, implement,
+    test, review, integrate. Use concise progress updates and finish with a runnable
+    validation summary.'
+  codex_args:
+  - --skip-git-repo-check
+  timeout_sec: 5400
+  loop_max_iters: 3
+  loop_run_dev_mode: decision
