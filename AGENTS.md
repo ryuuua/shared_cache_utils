@@ -143,7 +143,9 @@ VaultのローカルRAG用ベクトルキャッシュの再構築を行うトリ
 
 - `mx:dev`
 - `mx:loop`
+- `mx:sync`
 - `mx:local`
+- `mx:coop`
 - `headnode`
 - `cc21`
 - `local`
