@@ -1,122 +1,68 @@
 # AGENTS.md
 
-## Fast Path (Unified)
+## Fast Path (Public Targets)
 
-| Mode | Allowed | Denied |
-| --- | --- | --- |
-| no token | reference/resolve/explain/static checks | any real execution |
-| `refenvN` | same as no token (env-scoped) | any real execution |
-| `testenvN` | approved test/probe execution | arbitrary user execution |
-| `exeenvN` | user-requested execution | none beyond environment constraints |
+公開 target は次の3つに固定:
+- `env1_a6000`
+- `env2_3090`
+- `cc21`
 
-### Source of Truth
-- Policy: `/Users/ryua/code/labenv_config/.mcp/policy.yaml`
-- Validator: `/Users/ryua/code/labenv_config/scripts/validate_env_tokens.py`
-- Detailed rules: `/Users/ryua/code/labenv_config/docs/AGENTS_DETAILS.md`
+設計原則:
+- 正本は単一ファイル `targets.yaml`。
+- Python 側は Pydantic 型付きローダー兼検証器に徹する。
+- `cc21` は「logical access endpoint + capability + queue profile」で扱う。
+- `env3` / `env4` の公開互換運用は行わない。
 
-### Execution Rule
-- `execution_kind=none`: token not required.
-- `execution_kind=exec_login|exec_compute`: env token required (`testenvN` or `exeenvN`).
-- Missing token for execution must fail with `execution_token_required`.
+## Workflow Matrix (Usage)
 
-### MCP Usage
-1. Call `server_info` once per MCP server at session start and cache the result.
-2. Prefer composite tools (`resolve_and_run`, `resolve_and_submit_sbatch`).
-3. For runtime facts, prefer `verify_runtime_facts` (light first, compute only when needed).
+| Mode | Token | `env1_a6000` | `env2_3090` | `cc21` |
+| --- | --- | --- | --- | --- |
+| no token | なし | 参照/解決/説明のみ | 参照/解決/説明のみ | 参照/解決/説明のみ |
+| ref | `ref:<target>` | 参照/解決/説明のみ | 参照/解決/説明のみ | 参照/解決/説明のみ |
+| test | `test:<target>` | 承認済み probe/test（Docker 経路のみ） | 承認済み probe/test（Docker 経路のみ） | 承認済み probe/test（`plan_dispatch` + Slurm） |
+| exe | `exe:<target>` | ユーザー実行（Docker 強制） | ユーザー実行（Docker 強制） | ユーザー実行（`plan_dispatch` + Slurm 強制） |
 
-### Repo Note
-- Any execution must target a `project_id` registered in `/Users/ryua/code/labenv_config/projects.yaml`.
+## Runtime Context Gate
 
-### Quick Checks
-- `python3 /Users/ryua/code/labenv_config/scripts/validate_env_tokens.py "<message>"`
-- `python3 /Users/ryua/code/labenv_config/scripts/validate_env_tokens.py "<message>" --env env3 --execution-kind exec_compute`
+- token 付きフロー（`ref` / `test` / `exe`）では、実行前に `labenv-hub.open_runtime_context(...)` を必ず呼ぶ。
+- 必須入力: `project_id`, `env`, `host`, `permission_tokens`, `mode`。
+- 実行 API は `host` と `context_id` の両方を必須とする。
+- TTL は `1800` 秒。期限切れは再オープンする。
 
-## MCP_SANDBOX_TRIGGER
+## Dispatch Rules
 
-If user input contains one of these tokens, run codex-factory automation via mcp_sandbox:
-- MCP_SANDBOX_SYNC
-- MCP_SANDBOX_STOP_SMOKE
-- MCP_SANDBOX_DEV
-- MCP_SANDBOX_EXP
-- MCP_SANDBOX_ANALYZE
-- MCP_SANDBOX_LOOP
+| target | Backend | 必須フロー | path scope |
+| --- | --- | --- | --- |
+| `env1_a6000` | Docker | `docker_run*` / `resolve_and_run`（Docker 実行） | `/home` |
+| `env2_3090` | Docker | `docker_run*` / `resolve_and_run`（Docker 実行） | `/home` |
+| `cc21` | Slurm | `plan_dispatch` を先行し、`resolve_and_submit_sbatch*` へ接続 | `/work` |
 
-Execution command template:
-```bash
-bash /Users/ryua/code/mcp_sandbox/scripts/factory_auto.sh \
-  --token <TOKEN> \
-  --repo-id shared_cache_utils \
-  --repo-name shared_cache_utils \
-  --branch "$(git rev-parse --abbrev-ref HEAD)"
-```
+CC21 planner ポリシー:
+- `plan_dispatch` の `rationale` は実行前に必ず提示する。
+- `queue_profile_override` は expert path 限定。
+- 通常経路は planner 強制。
+- `sinfo` / `squeue` は短TTL runtime cache（既定60秒）で扱い、repo tracked YAML に混ぜない。
 
-STOP-first override:
-- \'STOP <job_id>\' -> `python3 /Users/ryua/code/mcp_sandbox/scripts/kill_switch.py --mcp-url http://127.0.0.1:18177/mcp --target job --id <job_id> --mode kill`
-- \'STOPRUN <run_id>\' -> `python3 /Users/ryua/code/mcp_sandbox/scripts/kill_switch.py --mcp-url http://127.0.0.1:18177/mcp --target run --id <run_id> --mode kill`
+## Hard Constraints
 
-Use codex_factory MCP for orchestration; do not use labenv_* tools for job/run/fleet control.
+- Local Mac から env 実ホストへ直接 `ssh` しない。headnode 経由（MCP / ProxyJump）を使う。
+- `cc21dev0` と `cc21dev1` は同一扱いで、論理 host `cc21` に正規化する。
+- `cc21` compute I/O は `/work` を使う。
+- GPU 実行は `--gres=gpu:<N>` を要求する。
+- `cc21` の GPU capability は `singularity exec --nv` 必須。非GPU capability では `--nv` 禁止。
 
-## EXTERNAL RAM WORKFLOW (Context Switch)
-
-ユーザー入力にコマンドトークン `@RAM` または `@todoist` が含まれている場合、複数ツールの逐次呼び出しは行わず、**必ず `workflow_external_ram` を1回だけ**呼び出して退避すること。
-
-1. **コンテキスト抽出**
-- Context: 中断理由、現在状態、失敗内容など。
-- Next Action: 次の具体的な着手項目。
-2. **マクロ退避実行**
-- `workflow_external_ram(repo_name, context, next_action, todoist_project_id?)` を1回だけ実行する。
-- `repo_name` は必ず `owner/repo` 形式。
-- `todoist_project_id` を省略した場合は Inbox（またはTodoist既定）に作成される。
-3. **内部で同時実行される処理**
-- GitHub Issue の起票（`[RAM] <next_action>`）
-- Todoist タスク登録（Issueリンク付き）
-- `codex_dashboard/<repo>_dashboard.md` の `## 中断ログ` へ追記（`prepend_to_heading`）
-4. **ユーザー通知**
-- ツール戻り値の `github_issue` / `todoist_task` / `dashboard_updated` を使って完了報告する。
-
-使い方例:
-- `行き詰まったので一旦寝ます。 @RAM [Context: 依存解決で404] -> [Next Action: private registry設定を確認]`
-
-## OLLAMA LOCAL RAG & REPORT WORKFLOW
-
-強力なローカルLLM（Ollama）への処理のオフロードを行うためのトークン一覧です。このトークンが含まれていた場合、長文の読み込みや要約推論はエージェント自身で行わず、速やかにMCPサーバーのローカル処理へ投げてトークン消費を抑止してください。
-
-### `@REPORT`
-フォルダ配下の `.md` を再帰的に集約し、ローカルLLMでレポート生成して保存したい場合のトリガー。
-1. `ollama_generate_report` を利用する。
-2. `source_directory`（入力ディレクトリ）、`target_file`（保存先）、`prompt`（指示）を渡す。
-3. 出力は Vault に直接保存される。
-
-### `@SUMMARY`
-フォルダ配下の `.md` を再帰的に集約し、その場で要約結果だけを返したい場合のトリガー。
-1. `ollama_summarize_directory` を利用する。
-2. `directory_path` と `prompt` を渡す。
-
-### `@INDEX`
-VaultのローカルRAG用ベクトルキャッシュの再構築を行うトリガートークン。
-1. `ollama_rebuild_index` ツールを利用する。
-2. `target_directory` 指定時は対象配下のみ差分更新し、対象外キャッシュは保持する。
-3. 未指定時は Vault 全体を再計算する。
-
-### `@SEARCH`
-ローカルのベクトルキャッシュに対し、意味的な関連でノートを検索するRAGトークン。
-1. `ollama_semantic_search` ツールを利用する。
-2. ユーザーの意図を汲んだ `query` と、必要な取得数 `top_k` (デフォルト5) を渡す。
-3. 返却された結果（パスとプレビュー）を使って、エージェントがユーザーに的確に回答する。
-
-使い方例:
-- `@REPORT Codex Notes/CEBRA-NLP-gen2 の今週の進捗をレポート化して`
-- `@INDEX を実行して`
-- `@SEARCH PCAエラー回避策`
-
-## Token Reference (Execution / Sandbox)
+## Trigger Tokens (Execution / Automation)
 
 ### Execution permission tokens
-- `refenvN`: 読み取り・解決・静的確認のみ（実行不可）
-- `testenvN`: 承認済みテスト/プローブ実行のみ
-- `exeenvN`: ユーザー依頼の実行を許可
-- 同一環境では `refenvN` と `testenvN` の併用を許可
-- 同一環境で `exeenvN` と他モードの併用は不可
+- `ref:<target>`
+- `test:<target>`
+- `exe:<target>`
+
+`<target>` は `env1_a6000` / `env2_3090` / `cc21` を使用する。
+
+組み合わせルール:
+- 同一 target で `ref + test` は許可。
+- 同一 target で `exe` と他 mode の併用は不可。
 
 ### Sandbox automation tokens
 - `MCP_SANDBOX_SYNC`
@@ -130,17 +76,17 @@ VaultのローカルRAG用ベクトルキャッシュの再構築を行うトリ
 - `STOP <job_id>`
 - `STOPRUN <run_id>`
 
-## Tool Policy
+### External RAM context switch
+- `@RAM`
+- `@todoist`
 
-- `web.image_query` はこのリポジトリでは使用禁止。
-- 画像が必要な場合は `web.search_query` を使って画像掲載ページURLを提示する。
+### Ollama offload tokens
+- `@REPORT`
+- `@SUMMARY`
+- `@INDEX`
+- `@SEARCH`
 
-<!-- AGENTIC_TRIGGER_TOKENS:BEGIN -->
-## Agentic Trigger Tokens
-
-このrepoでは `.mcp/trigger_profiles.yaml` のトリガー定義を使います。
-以下のトークンをユーザー入力に含めると、`dispatch_repo_trigger.py` で実行できます。
-
+### Agentic trigger profile tokens
 - `mx:dev`
 - `mx:loop`
 - `mx:sync`
@@ -150,6 +96,24 @@ VaultのローカルRAG用ベクトルキャッシュの再構築を行うトリ
 - `cc21`
 - `local`
 
-実行例:
-- `python3 /Users/ryua/code/mcp_sandbox/scripts/dispatch_repo_trigger.py --repo-root /Users/ryua/code/shared_cache_utils --token <TOKEN>`
-<!-- AGENTIC_TRIGGER_TOKENS:END -->
+## Canonical Sources
+
+- Policy: `/Users/ryua/code/labenv_config/.mcp/policy.yaml`
+- Token validator: `/Users/ryua/code/labenv_config/scripts/validate_env_tokens.py`
+- Detailed rules: `/Users/ryua/code/labenv_config/docs/AGENTS_DETAILS.md`
+- Exec usage: `/Users/ryua/code/labenv_config/docs/EXEC_MCP.md`
+
+## Quick Checks
+
+- `python3 /Users/ryua/code/labenv_config/scripts/validate_env_tokens.py "<message>"`
+- `python3 /Users/ryua/code/labenv_config/scripts/validate_env_tokens.py "<message>" --env cc21 --execution-kind exec_compute`
+
+## Repo Entrypoints
+
+- Trigger dispatch: `python3 /Users/ryua/code/mcp_sandbox/scripts/dispatch_repo_trigger.py --repo-root /Users/ryua/code/shared_cache_utils --token <TOKEN>`
+- Sandbox automation: `bash /Users/ryua/code/mcp_sandbox/scripts/factory_auto.sh --token <TOKEN> --repo-id shared_cache_utils --repo-name shared_cache_utils --branch "$(git rev-parse --abbrev-ref HEAD)"`
+
+## Tool Policy
+
+- `web.image_query` は使用禁止。
+- 画像が必要な場合は `web.search_query` を使い、画像掲載ページURLを提示する。
