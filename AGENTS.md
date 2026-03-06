@@ -11,6 +11,7 @@
 - 正本は単一ファイル `targets.yaml`。
 - Python 側は Pydantic 型付きローダー兼検証器に徹する。
 - `cc21` は `logical access endpoint + capability + queue_profile` で扱う。
+- `headnode` は `targets.yaml.infrastructure_hosts` で管理する bastion であり、公開 target ではない。
 - 公開 target は上記3つのみを使い、旧 split-target 運用はしない。
 
 ## Workflow Matrix (Usage)
@@ -29,6 +30,7 @@
 - 実行 API は `host` と `context_id` の両方を必須とする。
 - Runtime context TTL は `1800` 秒。期限切れ時は再オープンする。
 - `host_env_mismatch` は拒否。`cc21dev0` / `cc21dev1` は論理 host `cc21` に正規化する。
+- `headnode` / `local` は topology anchor であり、execution target としては扱わない。
 
 ## Dispatch Matrix
 
@@ -43,7 +45,7 @@ CC21 planner ポリシー:
 - 通常経路は planner 強制。`queue_profile_override` は expert path 限定。
 - live 状態（`sinfo` / `squeue`）は短 TTL runtime cache で扱い、repo tracked YAML に混在させない。
 
-## Trigger Tokens (Exact Catalog)
+## labenv_config Public Tokens
 
 ### Execution permission tokens
 - `ref:<target>`
@@ -55,6 +57,11 @@ CC21 planner ポリシー:
 組み合わせルール:
 - 同一 target で `ref + test` は許可。
 - 同一 target で `exe` と他 mode の併用は不可。
+
+`labenv_config` の公開 execution contract は上記の `ref` / `test` / `exe` です。
+`mcp_sandbox` 連携トークンは下記に分離して載せますが、別レイヤのトークンとして扱います。
+
+## mcp_sandbox Integration Tokens
 
 ### Public workflow tokens (`mx:*`)
 
@@ -76,6 +83,10 @@ CC21 planner ポリシー:
 ### Host/context selectors
 - `sandbox`, `sandbox1`, `sandbox2`, `sandboxN`
 - `headnode`, `cc21`, `local`
+
+selector メモ:
+- `headnode` は bastion/topology anchor。
+- 単体の `cc21` は selector、`ref:cc21` / `test:cc21` / `exe:cc21` は execution target token。
 
 ### Internal sandbox tokens (implementation-only)
 - `MCP_SANDBOX_SYNC`
