@@ -1,70 +1,66 @@
 # AGENTS.md
 
-## Fast Path (Public Targets)
+## Control Plane Boundary
 
-公開 target は次の3つに固定:
-- `env1_a6000`
-- `env2_3090`
-- `cc21`
+- `mcp_sandbox` / codex-factory は `sandboxN` の orchestration を担当する。
+- `labenv_config` は `env1_a6000` / `env2_3090` / `cc21` の execution bridge を担当する。
+- `sandboxN` と `env*` は別物であり、同一視しない。
+- `sandboxN` は host selector、`mx:*` は workflow selector として組み合わせる。
 
-設計原則:
-- 正本は単一ファイル `targets.yaml`。
-- Python 側は Pydantic 型付きローダー兼検証器に徹する。
-- `cc21` は「logical access endpoint + capability + queue profile」で扱う。
-- `env3` / `env4` の公開互換運用は行わない。
+## Recommended Entrypoints
 
-## Workflow Matrix (Usage)
+- `python3 /Users/ryua/code/mcp_sandbox/scripts/execute_user_intent.py --repo-root /Users/ryua/code/shared_cache_utils "sandbox1 mx:coop で進めて"`
+- `python3 /Users/ryua/code/mcp_sandbox/scripts/execute_message_only.py "sandbox mx:loop を shared_cache_utils で回して"`
+- `python3 /Users/ryua/code/mcp_sandbox/scripts/dispatch_repo_trigger.py --repo-root /Users/ryua/code/shared_cache_utils --token mx:loop`
 
-| Mode | Token | `env1_a6000` | `env2_3090` | `cc21` |
-| --- | --- | --- | --- | --- |
-| no token | なし | 参照/解決/説明のみ | 参照/解決/説明のみ | 参照/解決/説明のみ |
-| ref | `ref:<target>` | 参照/解決/説明のみ | 参照/解決/説明のみ | 参照/解決/説明のみ |
-| test | `test:<target>` | 承認済み probe/test（Docker 経路のみ） | 承認済み probe/test（Docker 経路のみ） | 承認済み probe/test（`plan_dispatch` + Slurm） |
-| exe | `exe:<target>` | ユーザー実行（Docker 強制） | ユーザー実行（Docker 強制） | ユーザー実行（`plan_dispatch` + Slurm 強制） |
+## Public Sandbox Workflow Tokens
 
-## Runtime Context Gate
+公開 trigger token は `mx:*` 系のみを使う。`MCP_SANDBOX_*` は内部実装トークンであり、通常のユーザープロンプトには入れない。
 
-- token 付きフロー（`ref` / `test` / `exe`）では、実行前に `labenv-hub.open_runtime_context(...)` を必ず呼ぶ。
-- 必須入力: `project_id`, `env`, `host`, `permission_tokens`, `mode`。
-- 実行 API は `host` と `context_id` の両方を必須とする。
-- TTL は `1800` 秒。期限切れは再オープンする。
-
-## Dispatch Rules
-
-| target | Backend | 必須フロー | path scope |
+| Token | Alias | Route | Purpose |
 | --- | --- | --- | --- |
-| `env1_a6000` | Docker | `docker_run*` / `resolve_and_run`（Docker 実行） | `/home` |
-| `env2_3090` | Docker | `docker_run*` / `resolve_and_run`（Docker 実行） | `/home` |
-| `cc21` | Slurm | `plan_dispatch` を先行し、`resolve_and_submit_sbatch*` へ接続 | `/work` |
+| `mx:dev` | - | `sandbox` | Agentic DEV autopilot on sandbox1 profile |
+| `mx:loop` | - | `sandbox` | Agentic EXP/ANALYZE loop on sandbox2 profile |
+| `mx:local` | - | `outside` | Run an end-to-end local agentic development cycle with codex exec |
+| `mx:exp` | `mxexp` | `sandbox` | One-shot experiment execution on sandbox2 |
+| `mx:analyze` | `mxanalyze` | `sandbox` | Analyze experiment outputs and summarize metrics on sandbox2 |
+| `mx:smoke` | `mxsmoke` | `sandbox` | Stop/smoke safety check on sandbox1 |
+| `mx:sync` | `mxsync` | `sandbox` | Sync headnode mirror branch to selected sandbox host(s) |
+| `mx:devflow` | `mxdevflow` | `pipeline` | Development workflow (sync -> local -> sandbox dev -> analyze) |
+| `mx:expflow` | `mxexpflow` | `pipeline` | Experiment workflow (sync -> experiment -> analyze) |
+| `mx:verify` | `mxverify` | `pipeline` | Verification workflow (sync -> analyze -> stop/smoke) |
+| `mx:coop` | `mxcoop` | `pipeline` | Cooperative DEV and LOOP on sandbox1/sandbox2 |
+| `mx:full` | `mxfull` | `pipeline` | Full cycle across development, experiment, and verification workflows |
 
-CC21 planner ポリシー:
-- `plan_dispatch` の `rationale` は実行前に必ず提示する。
-- `queue_profile_override` は expert path 限定。
-- 通常経路は planner 強制。
-- `sinfo` / `squeue` は短TTL runtime cache（既定60秒）で扱い、repo tracked YAML に混ぜない。
+## Host Selectors
 
-## Hard Constraints
+- 利用可能な selector: `sandbox`, `sandbox1`, `sandbox2`, `sandboxN`
+- `sandbox` のみなら default host group に委ねる。
+- `sandboxN` を併記すると、その host を優先して配分する。
+- 将来 `config/sandboxes.yaml` に host を追加した場合も `sandboxN` 命名で同じ規約を使う。
 
-- Local Mac から env 実ホストへ直接 `ssh` しない。headnode 経由（MCP / ProxyJump）を使う。
-- `cc21dev0` と `cc21dev1` は同一扱いで、論理 host `cc21` に正規化する。
-- `cc21` compute I/O は `/work` を使う。
-- GPU 実行は `--gres=gpu:<N>` を要求する。
-- `cc21` の GPU capability は `singularity exec --nv` 必須。非GPU capability では `--nv` 禁止。
+## Labenv Execution Tokens
 
-## Trigger Tokens (Execution / Automation)
-
-### Execution permission tokens
 - `ref:<target>`
 - `test:<target>`
 - `exe:<target>`
 
-`<target>` は `env1_a6000` / `env2_3090` / `cc21` を使用する。
+`<target>` は `env1_a6000`, `env2_3090`, `cc21` を使う。
 
 組み合わせルール:
 - 同一 target で `ref + test` は許可。
 - 同一 target で `exe` と他 mode の併用は不可。
 
-### Sandbox automation tokens
+## Operational Tokens
+
+- Emergency stop: `STOP <job_id>`, `STOPRUN <run_id>`
+- External RAM: `@RAM`, `@todoist`
+- Ollama offload: `@REPORT`, `@SUMMARY`, `@INDEX`, `@SEARCH`
+
+## Internal Sandbox Tokens
+
+以下は `factory_auto.sh` / `codex-factory` 内部で使う。公開 trigger token としては扱わない。
+
 - `MCP_SANDBOX_SYNC`
 - `MCP_SANDBOX_STOP_SMOKE`
 - `MCP_SANDBOX_DEV`
@@ -72,48 +68,22 @@ CC21 planner ポリシー:
 - `MCP_SANDBOX_ANALYZE`
 - `MCP_SANDBOX_LOOP`
 
-### Emergency stop
-- `STOP <job_id>`
-- `STOPRUN <run_id>`
-
-### External RAM context switch
-- `@RAM`
-- `@todoist`
-
-### Ollama offload tokens
-- `@REPORT`
-- `@SUMMARY`
-- `@INDEX`
-- `@SEARCH`
-
-### Agentic trigger profile tokens
-- `mx:dev`
-- `mx:loop`
-- `mx:sync`
-- `mx:local`
-- `mx:coop`
-- `headnode`
-- `cc21`
-- `local`
-
 ## Canonical Sources
 
-- Policy: `/Users/ryua/code/labenv_config/.mcp/policy.yaml`
-- Token validator: `/Users/ryua/code/labenv_config/scripts/validate_env_tokens.py`
-- Detailed rules: `/Users/ryua/code/labenv_config/docs/AGENTS_DETAILS.md`
-- Exec usage: `/Users/ryua/code/labenv_config/docs/EXEC_MCP.md`
+- Sandbox inventory: `/Users/ryua/code/mcp_sandbox/config/sandboxes.yaml`
+- Trigger defaults: `/Users/ryua/code/mcp_sandbox/scripts/trigger_profile_lib.py`
+- Dispatch entrypoint: `/Users/ryua/code/mcp_sandbox/scripts/dispatch_repo_trigger.py`
+- Intent entrypoint: `/Users/ryua/code/mcp_sandbox/scripts/execute_user_intent.py`
+- Labenv policy: `/Users/ryua/code/labenv_config/.mcp/policy.yaml`
+- Labenv validator: `/Users/ryua/code/labenv_config/scripts/validate_env_tokens.py`
 
 ## Quick Checks
 
 - `python3 /Users/ryua/code/labenv_config/scripts/validate_env_tokens.py "<message>"`
 - `python3 /Users/ryua/code/labenv_config/scripts/validate_env_tokens.py "<message>" --env cc21 --execution-kind exec_compute`
-
-## Repo Entrypoints
-
-- Trigger dispatch: `python3 /Users/ryua/code/mcp_sandbox/scripts/dispatch_repo_trigger.py --repo-root /Users/ryua/code/shared_cache_utils --token <TOKEN>`
-- Sandbox automation: `bash /Users/ryua/code/mcp_sandbox/scripts/factory_auto.sh --token <TOKEN> --repo-id shared_cache_utils --repo-name shared_cache_utils --branch "$(git rev-parse --abbrev-ref HEAD)"`
+- `python3 /Users/ryua/code/mcp_sandbox/scripts/dispatch_repo_trigger.py --repo-root /Users/ryua/code/shared_cache_utils --token mx:coop --dry-run`
 
 ## Tool Policy
 
 - `web.image_query` は使用禁止。
-- 画像が必要な場合は `web.search_query` を使い、画像掲載ページURLを提示する。
+- 画像が必要な場合は `web.search_query` を使い、画像掲載ページ URL を提示する。

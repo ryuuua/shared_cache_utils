@@ -45,3 +45,152 @@ profiles:
   timeout_sec: 5400
   loop_max_iters: 3
   loop_run_dev_mode: decision
+- token: mx:exp
+  token_aliases:
+  - mxexp
+  route: sandbox
+  sandbox: sandbox2
+  host_group: exp_default
+  factory_token: MCP_SANDBOX_EXP
+  execution_engine: codex
+  agent_modes:
+  - EXPERIMENT_BASELINE
+  - EXPERIMENT_VARIANT
+  goal: One-shot experiment execution on sandbox2
+  parallel_level: high
+  parallel_max: 10
+  default_policy: offline
+  tracking_provider: wandb
+  wandb_project: shared_cache_utils
+  wandb_mode: offline
+  retry_count: 1
+  retry_backoff_sec: 2
+  timeout_sec: 5400
+  loop_max_iters: 1
+  loop_run_dev_mode: never
+- token: mx:analyze
+  token_aliases:
+  - mxanalyze
+  route: sandbox
+  sandbox: sandbox2
+  host_group: analyze_default
+  factory_token: MCP_SANDBOX_ANALYZE
+  execution_engine: codex
+  agent_modes:
+  - ANALYZE_SUMMARY
+  goal: Analyze experiment outputs and summarize metrics on sandbox2
+  parallel_level: balanced
+  default_policy: offline
+  retry_count: 1
+  retry_backoff_sec: 2
+  timeout_sec: 3600
+  loop_max_iters: 1
+  loop_run_dev_mode: never
+- token: mx:smoke
+  token_aliases:
+  - mxsmoke
+  route: sandbox
+  sandbox: sandbox1
+  host_group: smoke_default
+  factory_token: MCP_SANDBOX_STOP_SMOKE
+  execution_engine: codex
+  agent_modes:
+  - STOP_SMOKE
+  goal: Stop/smoke safety check on sandbox1
+  parallel_level: single
+  default_policy: offline
+  timeout_sec: 1800
+  loop_max_iters: 1
+  loop_run_dev_mode: never
+- token: mx:sync
+  token_aliases:
+  - mxsync
+  route: sandbox
+  sandbox: sandbox1
+  host_group: sync_default
+  factory_token: MCP_SANDBOX_SYNC
+  execution_engine: codex
+  agent_modes:
+  - SYNC
+  goal: Sync headnode mirror branch to selected sandbox host(s)
+  parallel_level: single
+  default_policy: offline
+  timeout_sec: 1800
+  loop_max_iters: 1
+  loop_run_dev_mode: never
+- token: mx:devflow
+  token_aliases:
+  - mxdevflow
+  route: pipeline
+  pipeline_tokens:
+  - mx:sync
+  - mx:local
+  - mx:dev
+  - mx:analyze
+  continue_on_error: false
+  execution_engine: codex
+  goal: Development workflow (sync -> local -> sandbox dev -> analyze)
+  parallel_level: single
+  timeout_sec: 7200
+  loop_max_iters: 1
+  loop_run_dev_mode: never
+- token: mx:expflow
+  token_aliases:
+  - mxexpflow
+  route: pipeline
+  pipeline_tokens:
+  - mx:sync
+  - mx:exp
+  - mx:analyze
+  continue_on_error: false
+  execution_engine: codex
+  goal: Experiment workflow (sync -> experiment -> analyze)
+  parallel_level: single
+  timeout_sec: 7200
+  loop_max_iters: 1
+  loop_run_dev_mode: never
+- token: mx:verify
+  token_aliases:
+  - mxverify
+  route: pipeline
+  pipeline_tokens:
+  - mx:sync
+  - mx:analyze
+  - mx:smoke
+  continue_on_error: false
+  execution_engine: codex
+  goal: Verification workflow (sync -> analyze -> stop/smoke)
+  parallel_level: single
+  timeout_sec: 5400
+  loop_max_iters: 1
+  loop_run_dev_mode: never
+- token: mx:coop
+  token_aliases:
+  - mxcoop
+  route: pipeline
+  pipeline_tokens:
+  - mx:dev
+  - mx:loop
+  continue_on_error: false
+  execution_engine: codex
+  goal: Cooperative DEV and LOOP on sandbox1/sandbox2
+  parallel_level: balanced
+  timeout_sec: 5400
+  loop_max_iters: 3
+  loop_run_dev_mode: decision
+- token: mx:full
+  token_aliases:
+  - mxfull
+  route: pipeline
+  pipeline_tokens:
+  - mx:devflow
+  - mx:expflow
+  - mx:verify
+  continue_on_error: false
+  execution_engine: codex
+  goal: Full cycle across development, experiment, and verification workflows
+  parallel_level: balanced
+  parallel_max: 2
+  timeout_sec: 10800
+  loop_max_iters: 1
+  loop_run_dev_mode: never
